@@ -1,5 +1,4 @@
 import { load } from 'cheerio';
-import { JSDOM } from 'jsdom';
 import { RateLimiterMemory, RateLimiterQueue } from 'rate-limiter-flexible';
 
 import { config } from '@/config';
@@ -20,6 +19,9 @@ const subtitleLimiterQueue = new RateLimiterQueue(subtitleLimiter, {
     maxQueueSize: 4800,
 });
 
+const mobileUserAgent =
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
+
 const getCookie = (disableConfig = false) => {
     if (Object.keys(config.bilibili.cookies).length > 0 && !disableConfig) {
         // Update b_lsid in cookies
@@ -35,27 +37,49 @@ const getCookie = (disableConfig = false) => {
     }
     const key = 'bili-cookie';
     return cache.tryGet(key, async () => {
-        let waitForRequest = new Promise<string>((resolve) => {
-            resolve('');
-        });
-        const { destroy } = await getPuppeteerPage('https://space.bilibili.com/1/dynamic', {
-            onBeforeLoad: (page) => {
-                waitForRequest = new Promise<string>((resolve) => {
-                    page.on('requestfinished', async (request) => {
-                        if (request.url() === 'https://api.bilibili.com/x/web-interface/nav') {
-                            const cookies = await page.cookies();
-                            let cookieString = cookies.map((cookie) => `${cookie.name}=${cookie.value}`).join('; ');
-                            cookieString = cookieString.replace(/b_lsid=[0-9A-F]+_[0-9A-F]+/, `b_lsid=${utils.lsid()}`);
-                            resolve(cookieString);
-                        }
+        try {
+            const response = await got('https://m.bilibili.com/space/1?tab=video', {
+                headers: {
+                    Referer: 'https://www.bilibili.com/',
+                    'User-Agent': mobileUserAgent,
+                },
+            });
+            const setCookies = response.headers['set-cookie'] ?? [];
+            const cookieString = setCookies.map((cookie) => cookie.split(';')[0]).join('; ');
+            if (cookieString) {
+                logger.debug(`Got bilibili cookie from mobile page: ${cookieString}`);
+                return cookieString;
+            }
+        } catch (error) {
+            logger.warn(`Failed to bootstrap bilibili guest cookie from mobile page, fallback to puppeteer: ${error}`);
+        }
+
+        try {
+            let waitForRequest = new Promise<string>((resolve) => {
+                resolve('');
+            });
+            const { destroy } = await getPuppeteerPage('https://space.bilibili.com/1/dynamic', {
+                onBeforeLoad: (page) => {
+                    waitForRequest = new Promise<string>((resolve) => {
+                        page.on('requestfinished', async (request) => {
+                            if (request.url() === 'https://api.bilibili.com/x/web-interface/nav') {
+                                const cookies = await page.cookies();
+                                let cookieString = cookies.map((cookie) => `${cookie.name}=${cookie.value}`).join('; ');
+                                cookieString = cookieString.replace(/b_lsid=[0-9A-F]+_[0-9A-F]+/, `b_lsid=${utils.lsid()}`);
+                                resolve(cookieString);
+                            }
+                        });
                     });
-                });
-            },
-        });
-        const cookieString = await waitForRequest;
-        logger.debug(`Got bilibili cookie: ${cookieString}`);
-        await destroy();
-        return cookieString;
+                },
+            });
+            const cookieString = await waitForRequest;
+            logger.debug(`Got bilibili cookie: ${cookieString}`);
+            await destroy();
+            return cookieString;
+        } catch (error) {
+            logger.warn(`Failed to bootstrap bilibili guest cookie with puppeteer, fallback to empty cookie: ${error}`);
+            return '';
+        }
     });
 };
 
@@ -69,10 +93,8 @@ const getRenderData = (uid) => {
                 Cookie: cookie,
             },
         });
-        const dom = new JSDOM(response);
-        const document = dom.window.document;
-        const scriptElement = document.querySelector('#__RENDER_DATA__');
-        const innerText = scriptElement ? scriptElement.textContent || '{}' : '{}';
+        const $ = load(response);
+        const innerText = $('#__RENDER_DATA__').text() || '{}';
         const renderData = JSON.parse(decodeURIComponent(innerText));
         const accessId = renderData.access_id;
         return accessId;

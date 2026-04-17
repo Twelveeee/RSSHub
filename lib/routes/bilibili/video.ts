@@ -41,19 +41,22 @@ async function handler(ctx: Context) {
     const uid = ctx.req.param('uid');
     const embed = !ctx.req.param('embed');
     const cookie = await cache.getCookie();
-    const wbiVerifyString = await cache.getWbiVerifyString();
-    const dmImgList = utils.getDmImgList();
-    const dmImgInter = utils.getDmImgInter();
-    const renderData = await cache.getRenderData(uid);
-
-    const params = utils.addWbiVerifyInfo(
-        utils.addRenderData(utils.addDmVerifyInfoWithInter(`mid=${uid}&ps=30&tid=0&pn=1&keyword=&order=pubdate&platform=web&web_location=1550101&order_avoided=true`, dmImgList, dmImgInter), renderData),
-        wbiVerifyString
-    );
-    const response = await got(`https://api.bilibili.com/x/space/wbi/arc/search?${params}`, {
+    const response = await got('https://api.bilibili.com/x/space/arc/search', {
+        searchParams: {
+            mid: uid,
+            pn: 1,
+            ps: 30,
+            order: 'pubdate',
+            keyword: '',
+            gaia_source: 'm_station',
+            platform: 'h5',
+            web_location: '1280305',
+        },
         headers: {
-            Referer: `https://space.bilibili.com/${uid}`,
-            origin: 'https://space.bilibili.com',
+            Referer: `https://m.bilibili.com/space/${uid}?tab=video`,
+            origin: 'https://m.bilibili.com',
+            'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+            Accept: 'application/json, text/plain, */*',
             Cookie: cookie,
         },
     });
@@ -63,9 +66,8 @@ async function handler(ctx: Context) {
         throw new Error(`Got error code ${data.code} while fetching: ${data.message}`);
     }
 
-    const usernameAndFace = await cache.getUsernameAndFaceFromUID(uid);
-    const name = usernameAndFace[0] || data.data.list.vlist[0]?.author;
-    const face = usernameAndFace[1];
+    const name = data.data.list.vlist[0]?.author ?? (await cache.getUsernameFromUID(uid)) ?? uid;
+    const face = undefined;
 
     return {
         title: `${name} 的 bilibili 空间`,
