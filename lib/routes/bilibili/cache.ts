@@ -19,8 +19,7 @@ const subtitleLimiterQueue = new RateLimiterQueue(subtitleLimiter, {
     maxQueueSize: 4800,
 });
 
-const mobileUserAgent =
-    'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
+const mobileUserAgent = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
 
 const getCookie = (disableConfig = false) => {
     if (Object.keys(config.bilibili.cookies).length > 0 && !disableConfig) {
